@@ -1,5 +1,5 @@
 const { Events } = require("discord.js");
-
+const { pause, unPause, skip, disconnect } = require("../mp3/index.js");
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
@@ -36,6 +36,26 @@ module.exports = {
                 await command.autocomplete(interaction);
             } catch (error) {
                 console.error(error);
+            }
+        } else if (interaction.isButton()) {
+            const message = interaction.message;
+            switch (interaction.customId) {
+                case "pause": {
+                    pause(interaction);
+                    break;
+                }
+                case "unPause": {
+                    unPause(interaction);
+                    break;
+                }
+                case "skip": {
+                    skip(interaction);
+                    break;
+                }
+                case "disconnect": {
+                    disconnect(interaction);
+                    break;
+                }
             }
         }
     },

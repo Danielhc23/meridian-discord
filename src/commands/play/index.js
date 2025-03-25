@@ -1,7 +1,11 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const { voiceChannelMembers } = require("../../events/voiceStates.js");
 const { fetchResults } = require("../../tracks");
 const { enqueue, createNewConnection } = require("../../mp3/index.js");
+const TrackData = require("../../utils/trackData.js");
+const baseUrl = "https://www.youtube.com/watch?v=";
+
+let autoCompleteCache = new Map();
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -18,49 +22,73 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        const fetchNewestChannelPackage = voiceChannelMembers.get(
-            interaction.member
-        );
         const channel =
             voiceChannelMembers.get(interaction.member) ||
             interaction.member.voice.channel;
 
-        if (channel) {
-            createNewConnection(channel, interaction);
-            enqueue(interaction.options.getString("query"));
+        if (!channel) {
+            const noChannel = new EmbedBuilder()
+                .setDescription("Join a voice channel before playing a track.")
+                .setColor("#ff0000");
 
-            await interaction.reply("Now playing");
-        } else {
-            await interaction.reply(
-                "Join a voice channel before playing a track."
-            );
+            await interaction.reply({ embeds: [noChannel] });
+            return;
         }
+
+        const track = autoCompleteCache.get(
+            interaction.options.getString("query")
+        ) || autoCompleteCache.values().next().value;
+
+        if (!track) {
+            const noTrack = new EmbedBuilder()
+                .setDescription("Please choose from the provided list.")
+                .setColor("#ff0000");
+
+            await interaction.reply({ embeds: [noTrack] });
+            return;
+        }
+
+        createNewConnection(channel, interaction);
+        enqueue(track, interaction);
+
+        const embedTrack = new EmbedBuilder()
+            .setDescription("Added " + track.name)
+            .setThumbnail(track.thumbnail)
+            .setColor("#fffeb0")
+            .setURL(baseUrl + track.id);
+
+        //console.log(embedTrack);
+        await interaction.reply({ embeds: [embedTrack] });
     },
     async autocomplete(interaction) {
         const focusedVal = interaction.options.getFocused().trim();
-        console.log(focusedVal);
-        if (focusedVal.length > 0) {
-            const choices = await fetchResults(focusedVal, 5);
-            if (choices.length <= 0) {
-                await interaction.respond([]);
-            }
+        console.log("Input: ", focusedVal);
 
-            console.log(choices);
-            let titles = [];
-            let ids = [];
+        if (focusedVal.length <= 0) {
+            await interaction.respond([]);
+            return;
+        }
 
-            choices.forEach((value, key) => {
-                ids.push(value[0]);
-                titles.push(`${value[1]} - ${key}`);
-            });
+        autoCompleteCache = await fetchResults(focusedVal, 5);
 
-            titles = titles.map((str) =>
-                str.length > 100 ? str.slice(0, 100) : str
-            );
+        if (autoCompleteCache.size <= 0) {
+            await interaction.respond([]);
+            return;
+        }
+
+        console.log("Cache: ", autoCompleteCache);
+
+        try {
             await interaction.respond(
-                titles.map((title, i) => ({ name: title, value: ids[i] }))
+                Array.from(autoCompleteCache, ([key, value]) => {
+                    return {
+                        name: value.name.slice(0, 99),
+                        value: key.toString(),
+                    };
+                })
             );
-        } else {
+        } catch (error) {
+            console.error(error);
             await interaction.respond([]);
         }
     },

@@ -5,5 +5,6 @@ module.exports = {
     name: AudioPlayerStatus.Playing,
     execute(oldState, newState){
         console.log('Now playing');
+        
     }
 }
