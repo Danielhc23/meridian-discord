@@ -1,5 +1,5 @@
 const axios = require("axios");
-const {TrackData} = require('../utils/trackData.js')
+const { TrackData } = require('../utils/trackData.js')
 require("dotenv").config();
 const secretkey = process.env.YOUTUBE_SECRET_KEY;
 
@@ -7,12 +7,11 @@ const secretkey = process.env.YOUTUBE_SECRET_KEY;
  * Fetchs list of videos from string query, each list item contains the title, channel, and id of a video.
  * Title is key, value is array of 
  * Return num results
- * @param {string} query
- * @param {number} num 
- * @returns {Array<Map>}
+ * @param {String} query
+ * @param {Number} num 
+ * @returns {Promise<Map<string, TrackData>>} Promise resolving to Map of video id to TrackData object
  */
-async function fetchResults(query, num) {
-    console.log("Starting fun2...");
+async function fetchTrackData(query, num) {
 
     try {
         const response = await axios({
@@ -47,4 +46,4 @@ async function fetchResults(query, num) {
     }
 }
 
-module.exports = { fetchResults };
+module.exports = { fetchTrackData };

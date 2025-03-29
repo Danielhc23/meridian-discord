@@ -1,10 +1,12 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const { voiceChannelMembers } = require("../../events/voiceStates.js");
-const { fetchResults } = require("../../tracks");
+const { fetchTrackData } = require("../../api/fetchTrackData.js");
 const { enqueue, createNewConnection } = require("../../mp3/index.js");
-const TrackData = require("../../utils/trackData.js");
-const baseUrl = "https://www.youtube.com/watch?v=";
+const { errorColor } = require("../../utils/colors.js");
 
+/**
+ * @type {Map<string, TrackData>}
+ */
 let autoCompleteCache = new Map();
 
 module.exports = {
@@ -29,7 +31,7 @@ module.exports = {
         if (!channel) {
             const noChannel = new EmbedBuilder()
                 .setDescription("Join a voice channel before playing a track.")
-                .setColor("#ff0000");
+                .setColor(errorColor);
 
             await interaction.reply({ embeds: [noChannel] });
             return;
@@ -42,23 +44,14 @@ module.exports = {
         if (!track) {
             const noTrack = new EmbedBuilder()
                 .setDescription("Please choose from the provided list.")
-                .setColor("#ff0000");
+                .setColor(errorColor);
 
             await interaction.reply({ embeds: [noTrack] });
             return;
         }
 
         createNewConnection(channel, interaction);
-        enqueue(track, interaction);
-
-        const embedTrack = new EmbedBuilder()
-            .setDescription("Added " + track.name)
-            .setThumbnail(track.thumbnail)
-            .setColor("#fffeb0")
-            .setURL(baseUrl + track.id);
-
-        //console.log(embedTrack);
-        await interaction.reply({ embeds: [embedTrack] });
+        await enqueue(track, interaction);
     },
     async autocomplete(interaction) {
         const focusedVal = interaction.options.getFocused().trim();
@@ -69,7 +62,7 @@ module.exports = {
             return;
         }
 
-        autoCompleteCache = await fetchResults(focusedVal, 5);
+        autoCompleteCache = await fetchTrackData(focusedVal, 5);
 
         if (autoCompleteCache.size <= 0) {
             await interaction.respond([]);

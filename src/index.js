@@ -1,12 +1,8 @@
-const env = require("dotenv").config();
-const token = process.env.MERIDIAN_TOKEN;
+require("dotenv").config();
 const { Client, GatewayIntentBits} = require("discord.js");
-const { registerCommands } = require("./registration/registerCommands.js");
 const { handleCommands } = require('./handlers/handleCommands.js');
 const { handleEvents } = require('./handlers/handleEvents.js');
-const { handleVoiceEvents } = require('./handlers/handleVoiceEvents.js');
-
-const bot = "Meridian";
+const token = process.env.MERIDIAN_TOKEN;
 
 const client = new Client({
     intents: [

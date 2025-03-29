@@ -1,54 +1,86 @@
-const { spawn } = require("child_process");
 const {
     createAudioPlayer,
     createAudioResource,
     joinVoiceChannel,
     getVoiceConnection,
-    AudioPlayerStatus,
+    AudioPlayer,
+    VoiceConnection,
 } = require("@discordjs/voice");
 const {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
-    ComponentType,
     EmbedBuilder,
+    CommandInteraction,
+    Message,
+    VoiceChannel,
+    ButtonInteraction,
 } = require("discord.js");
 const { handlePlayerEvents } = require("../handlers/handlePlayerEvents");
 const { handleVoiceEvents } = require("../handlers/handleVoiceEvents");
 const baseUrl = "https://www.youtube.com/watch?v=";
 const { TrackData } = require("../utils/trackData.js");
 const Queue = require("queue-fifo");
+const { fetchTrackAudio } = require("../api/fetchTrackAudio.js");
+const { primaryColor, secondaryColor } = require("../utils/colors.js");
 
+/**
+ * @type {ButtonBuilder}
+ */
 const pauseButton = new ButtonBuilder()
     .setCustomId("pause")
     .setStyle(ButtonStyle.Secondary)
     .setEmoji("⏸️");
 
+/**
+ * @type {ButtonBuilder}
+ */
 const unpauseButton = new ButtonBuilder()
     .setCustomId("unPause")
     .setStyle(ButtonStyle.Primary)
     .setEmoji("▶️");
 
+/**
+ * @type {ButtonBuilder}
+ */
 const skipButton = new ButtonBuilder()
     .setCustomId("skip")
     .setStyle(ButtonStyle.Secondary)
     .setEmoji("⏯️");
 
+/**
+ * @type {ButtonBuilder}
+ */
 const disconnectButton = new ButtonBuilder()
     .setCustomId("disconnect")
     .setStyle(ButtonStyle.Secondary)
     .setEmoji("❌");
 
 /**
- * @var {Queue<TrackData>}
+ * @type {Queue<TrackData>}
  */
 const queue = new Queue();
 
+/**
+ * @type {AudioPlayer}
+ */
 let currentPlayer;
-let currentConnection;
-let currentInteraction;
-let currentMessage;
 
+/**
+ * @type {VoiceConnection}
+ */
+let currentConnection;
+
+/**
+ * @type {CommandInteraction}
+ */
+let currentInteraction;
+
+/**
+ * Creates a new voice connection on call from play command
+ * @param {VoiceChannel} channel The voice channel to connect to
+ * @param {CommandInteraction} interaction The interaction that triggered this
+ */
 function createNewConnection(channel, interaction) {
     if (!getVoiceConnection(interaction.guildId)) {
         currentConnection = joinVoiceChannel({
@@ -60,55 +92,75 @@ function createNewConnection(channel, interaction) {
     }
 }
 
+/**
+ * Pauses the current audio player and updates the message with the pause button
+ * @param {ButtonInteraction} interaction The interaction that triggered this
+ */
 function pause(interaction) {
     currentPlayer.pause();
-    const message = interaction.message;
     const buttons = new ActionRowBuilder().addComponents(
         unpauseButton,
         skipButton,
         disconnectButton
     );
-    message.edit({ components: [buttons] });
+    interaction.update({ components: [buttons] });
 }
 
+/**
+ * Unpauses the current audio player and updates the message with the play button
+ * @param {ButtonInteraction} interaction The interaction that triggered this
+ */
 function unPause(interaction) {
     currentPlayer.unpause();
-    const message = interaction.message;
     const buttons = new ActionRowBuilder().addComponents(
         pauseButton,
         skipButton,
         disconnectButton
     );
-    message.edit({ components: [buttons] });
+    interaction.update({ components: [buttons] });
 }
 
+/**
+ * Skips the current track and updates the message with the skip button
+ * @param {ButtonInteraction} interaction The interaction that triggered this
+ */
 function skip(interaction) {
     if (isEmpty()) {
         const embed = new EmbedBuilder()
-        .setTitle("Queue Empty.")
-        .setColor("#fffeb0")
-        
-    message.edit({ embeds: [embed] });
+            .setDescription("Queue Empty.")
+            .setColor(primaryColor);
+
+        interaction.update({ embeds: [embed], components: [] });
     } else {
         dequeue();
     }
 }
 
+/**
+ * Disconnects from voice and cleans up resources
+ * @param {ButtonInteraction} interaction The interaction that triggered this
+ */
 function disconnect(interaction) {
     const embed = new EmbedBuilder()
-    .setTitle("Queue Empty.")
-    .setColor("#fffeb0")
-    
-    message.edit({ embeds: [embed] });
-    
+        .setDescription("Disconnected.")
+        .setColor(primaryColor);
+
+    interaction.update({ embeds: [embed], components: [] });
     deletePlayer() && currentConnection.destroy() && queue.clear();
 }
 
 /**
- *
- * @param {TrackData} track
+ * Enqueues a track and starts playback if nothing is currently playing
+ * @param {TrackData} track The track data to enqueue
+ * @param {CommandInteraction} interaction The interaction that triggered this
  */
-function enqueue(track, interaction) {
+async function enqueue(track, interaction) {
+    const embed = new EmbedBuilder()
+    .setDescription("Added " + track.name)
+    .setThumbnail(track.thumbnail)
+    .setColor(primaryColor)
+    .setURL(baseUrl + track.id);
+
     currentInteraction = interaction;
     if (queue.isEmpty() && !currentPlayer) {
         //1. Play first song - when queue is empty and player does not exist
@@ -121,70 +173,54 @@ function enqueue(track, interaction) {
         queue.enqueue(track);
         console.log(`Enqueued track: ${track.name} - ${track.id}`);
     }
+
+    await interaction.reply({ embeds: [embed] });
 }
 
+/**
+ * Removes and plays the next track from the queue
+ */
 function dequeue() {
     const track = queue.dequeue();
     console.log(`Dequeued track: ${track.name} - ${track.id}`);
-    const resource = createAudioResource(fetchYoutubeAudio(track.id));
+    const resource = createAudioResource(fetchTrackAudio(track.id));
     currentPlayer.play(resource);
     currentConnection.subscribe(currentPlayer);
     displayTrack(track);
 }
 
+/**
+ * Checks if the queue is empty
+ * @returns {boolean} True if queue is empty, false otherwise
+ */
 function isEmpty() {
     return queue.isEmpty();
 }
 
+/**
+ * Deletes the current player
+ */
 function deletePlayer() {
     currentPlayer.stop();
-    console.log(currentPlayer);
 }
 
-async function displayTrack(track) {
-
+function displayTrack(track) {
     const row = new ActionRowBuilder().addComponents(
         pauseButton,
         skipButton,
         disconnectButton
     );
-    //console.log(currentInteraction);
 
     const embed = new EmbedBuilder()
         .setTitle("Now Playing: " + track.name)
         .setThumbnail(track.thumbnail)
-        .setColor("#fffeb0")
+        .setColor(primaryColor)
         .setURL(baseUrl + track.id);
 
-    console.log(currentInteraction);
-    const currentMessage = await currentInteraction.channel.send({
+    currentInteraction.channel.send({
         components: [row],
         embeds: [embed],
     });
-}
-
-function nextMessage() {
-    if (isEmpty()) {
-        currentMessage.edit({
-            components: [],
-            embeds: [],
-        });
-    }
-}
-
-/**
- *
- * @param {string} videoId
- */
-function fetchYoutubeAudio(videoId) {
-    const yt_dlp = spawn("yt-dlp", [
-        "-f",
-        "bestaudio",
-        "-o",
-        "-",
-        baseUrl + videoId,
-    ]);
-    return yt_dlp.stdout;
 }
 
 module.exports = {
@@ -196,6 +232,5 @@ module.exports = {
     disconnect,
     pause,
     unPause,
-    nextMessage,
-    deletePlayer
+    deletePlayer,
 };

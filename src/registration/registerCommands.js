@@ -1,4 +1,4 @@
-const env = require("dotenv").config();
+require("dotenv").config();
 const fs = require("node:fs");
 const path = require("node:path");
 const { addCommands } = require("./addCommands.js");

@@ -5,8 +5,9 @@ module.exports = {
     name: AudioPlayerStatus.Idle,
     execute(oldState, newState) {
         console.log("Player Idle");
-        if (!isEmpty()) dequeue();
-        else {
+        if (!isEmpty()) {
+            dequeue();
+        } else {
             deletePlayer();
         }
     },

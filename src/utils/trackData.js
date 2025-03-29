@@ -1,10 +1,10 @@
 class TrackData {
     /**
      * 
-     * @param {string} name 
-     * @param {string} id 
-     * @param {string} artist 
-     * @param {string} thumbnail 
+     * @param {String} name 
+     * @param {String} id 
+     * @param {String} artist 
+     * @param {String} thumbnail 
      */
     constructor(name, id, artist, thumbnail){
         this.name = name;
