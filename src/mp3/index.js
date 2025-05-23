@@ -5,6 +5,7 @@ const {
     getVoiceConnection,
     AudioPlayer,
     VoiceConnection,
+    AudioPlayerStatus
 } = require("@discordjs/voice");
 const {
     ActionRowBuilder,
@@ -12,7 +13,6 @@ const {
     ButtonStyle,
     EmbedBuilder,
     CommandInteraction,
-    Message,
     VoiceChannel,
     ButtonInteraction,
 } = require("discord.js");
@@ -22,7 +22,8 @@ const baseUrl = "https://www.youtube.com/watch?v=";
 const { TrackData } = require("../utils/trackData.js");
 const Queue = require("queue-fifo");
 const { fetchTrackAudio } = require("../api/fetchTrackAudio.js");
-const { primaryColor, secondaryColor } = require("../utils/colors.js");
+const { primaryColor } = require("../utils/colors.js");
+
 
 /**
  * @type {ButtonBuilder}
@@ -130,6 +131,7 @@ function skip(interaction) {
             .setDescription("Queue Empty.")
             .setColor(primaryColor);
 
+        deletePlayer();
         interaction.update({ embeds: [embed], components: [] });
     } else {
         dequeue();
@@ -161,15 +163,23 @@ async function enqueue(track, interaction) {
     .setColor(primaryColor)
     .setURL(baseUrl + track.id);
 
+    //Use global var to store interaction || Bundle track with interaction.
+    //Global Vars are less intutive than bundling
     currentInteraction = interaction;
-    if (queue.isEmpty() && !currentPlayer) {
-        //1. Play first song - when queue is empty and player does not exist
-        queue.enqueue(track);
-        console.log(`Enqueued track: ${track.name} - ${track.id}`);
+
+    if (!currentPlayer || currentPlayer.state === AudioPlayerStatus.Idle) {
+        //1. Create a new audio player if it doesn't exist
         currentPlayer = createAudioPlayer();
         handlePlayerEvents(currentPlayer);
+    }
+
+    if (queue.isEmpty()) {
+        //2. Automatically play first song when queue is empty
+        queue.enqueue(track);
+        console.log(`Enqueued track: ${track.name} - ${track.id}`);
         dequeue();
     } else {
+        //2. Add song to queue when something is playing
         queue.enqueue(track);
         console.log(`Enqueued track: ${track.name} - ${track.id}`);
     }
@@ -222,6 +232,8 @@ function displayTrack(track) {
         embeds: [embed],
     });
 }
+
+
 
 module.exports = {
     enqueue,
