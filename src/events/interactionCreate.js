@@ -1,5 +1,6 @@
 const { Events } = require("discord.js");
-const { pause, unPause, skip, disconnect } = require("../mp3/index.js");
+const { searchPlayers } = require("../mp3/index.js");
+
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
@@ -38,22 +39,24 @@ module.exports = {
                 console.error(error);
             }
         } else if (interaction.isButton()) {
-            const message = interaction.message;
-            switch (interaction.customId) {
+            const id = interaction.customId;
+            const player = searchPlayers(interaction.guildId);
+            
+            switch (id) {
                 case "pause": {
-                    pause(interaction);
+                    player.pause(interaction);
                     break;
                 }
                 case "unPause": {
-                    unPause(interaction);
+                    player.unPause(interaction);
                     break;
                 }
                 case "skip": {
-                    skip(interaction);
+                    player.skip(interaction);
                     break;
                 }
                 case "disconnect": {
-                    disconnect(interaction);
+                    player.disconnect(interaction);
                     break;
                 }
             }

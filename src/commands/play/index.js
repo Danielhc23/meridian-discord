@@ -1,10 +1,14 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const { voiceChannelMembers } = require("../../events/voiceStates.js");
 const { fetchTrackData } = require("../../api/fetchTrackData.js");
-const { enqueue, createNewConnection } = require("../../mp3/index.js");
+const { createNewPlayer } = require("../../mp3/index.js");
 const { errorColor } = require("../../utils/colors.js");
 
 /**
+ * Stores tracks to reduce the number of Youtube API calls.
+ * Stored data can be incorrect but most likely not an issue since music videos arent usually deleted or modified
+ * TODO: Store this in local storage or use a database to add persistence
+ * TODO: Prevent deleted videos from appearing in this Cache so maybe refresh frequently or remove entry if data is bad
  * @type {Map<string, TrackData>}
  */
 let autoCompleteCache = new Map();
@@ -50,8 +54,8 @@ module.exports = {
             return;
         }
 
-        createNewConnection(channel, interaction);
-        await enqueue(track, interaction);
+        const player = createNewPlayer(interaction, channel);
+        await player.enqueue(track, interaction);
     },
     async autocomplete(interaction) {
         const focusedVal = interaction.options.getFocused().trim();

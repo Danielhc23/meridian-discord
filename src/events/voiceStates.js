@@ -1,7 +1,5 @@
 const { Events } = require("discord.js");
 
-
-
 const voiceChannelMembers = new Map();
 
 module.exports = {
@@ -16,5 +14,5 @@ module.exports = {
             voiceChannelMembers.delete(newState.member);
         }
     },
-    voiceChannelMembers,
+    voiceChannelMembers
 };

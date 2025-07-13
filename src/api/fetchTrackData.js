@@ -33,7 +33,7 @@ async function fetchTrackData(query, num) {
                 const videoTitle = video.snippet.title;
                 const id = video.id.videoId;
                 const channelTitle = video.snippet.channelTitle;
-                const thumbnailUrl = video.snippet.thumbnails.high.url;
+                const thumbnailUrl = video.snippet.thumbnails.default.url;
 
                 videos.set(id, new TrackData(videoTitle, id, channelTitle, thumbnailUrl));
             }

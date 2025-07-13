@@ -13,4 +13,5 @@ class TrackData {
         this.thumbnail = thumbnail;
     }
 }
+
 module.exports = { TrackData };

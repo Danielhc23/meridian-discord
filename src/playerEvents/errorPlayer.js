@@ -1,7 +1,7 @@
 const { AudioPlayerError } = require('@discordjs/voice');
 
 module.exports = {
-    name: 'error',
+    name: AudioPlayerError,
     execute(error){
         console.log(error);
     }

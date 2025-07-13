@@ -1,6 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+/**
+ * 
+ * @param {Player} player 
+ */
 function handlePlayerEvents(player){
     //Handle voiceEvents
     const eventsFolderPath = path.join(__dirname, "/../playerEvents");
@@ -14,8 +18,8 @@ function handlePlayerEvents(player){
         const event = require(filePath);
         if ("name" in event && "execute" in event) {
             if (event.once)
-                player.once(event.name, (...args) => event.execute(...args));
-            else player.on(event.name, (...args) => event.execute(...args));
+                player.player.once(event.name, (...args) => event.execute(...args, player));
+            else player.player.on(event.name, (...args) => event.execute(...args, player));
         } else {
             console.log(
                 `[WARNING] The event at ${filePath} is missing a required "name" or "execute" property.`

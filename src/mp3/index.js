@@ -5,7 +5,7 @@ const {
     getVoiceConnection,
     AudioPlayer,
     VoiceConnection,
-    AudioPlayerStatus
+    AudioPlayerStatus,
 } = require("@discordjs/voice");
 const {
     ActionRowBuilder,
@@ -15,6 +15,7 @@ const {
     CommandInteraction,
     VoiceChannel,
     ButtonInteraction,
+    Guild,
 } = require("discord.js");
 const { handlePlayerEvents } = require("../handlers/handlePlayerEvents");
 const { handleVoiceEvents } = require("../handlers/handleVoiceEvents");
@@ -24,225 +25,233 @@ const Queue = require("queue-fifo");
 const { fetchTrackAudio } = require("../api/fetchTrackAudio.js");
 const { primaryColor } = require("../utils/colors.js");
 
-
-/**
- * @type {ButtonBuilder}
- */
+//Constant buttons used for GUI
 const pauseButton = new ButtonBuilder()
-    .setCustomId("pause")
+    .setCustomId(`pause`)
     .setStyle(ButtonStyle.Secondary)
     .setEmoji("⏸️");
 
-/**
- * @type {ButtonBuilder}
- */
 const unpauseButton = new ButtonBuilder()
-    .setCustomId("unPause")
+    .setCustomId(`unPause`)
     .setStyle(ButtonStyle.Primary)
     .setEmoji("▶️");
 
-/**
- * @type {ButtonBuilder}
- */
 const skipButton = new ButtonBuilder()
-    .setCustomId("skip")
+    .setCustomId(`skip`)
     .setStyle(ButtonStyle.Secondary)
     .setEmoji("⏯️");
 
-/**
- * @type {ButtonBuilder}
- */
 const disconnectButton = new ButtonBuilder()
-    .setCustomId("disconnect")
+    .setCustomId(`disconnect`)
     .setStyle(ButtonStyle.Secondary)
     .setEmoji("❌");
 
-/**
- * @type {Queue<TrackData>}
- */
-const queue = new Queue();
+    
+class Player {
+    /**
+     *
+     * @param {VoiceConnection} voiceConnection
+     * @param {AudioPlayer} player
+     * @param {CommandInteraction} interaction
+     */
+    constructor(voiceConnection, interaction) {
+        this.voiceConnection = voiceConnection;
+        this.player = null;
+        this.queue = new Queue();
+        this.interaction = interaction;
+        this.isPlaying = false; //Used only for enqueue, dequeue loop. IS NOT FALSE WHEN PAUSED
+    }
+
+    /**
+     * Enqueues a track and starts playback if nothing is currently playing
+     * @param {TrackData} track The track data to enqueue
+     * @param {CommandInteraction} interaction The interaction that triggered this
+     */
+    async enqueue(track, interaction) {
+
+        this.interaction = interaction;
+
+        const embed = new EmbedBuilder()
+            .setDescription("Added " + track.name)
+            .setThumbnail(track.thumbnail)
+            .setColor(primaryColor)
+            .setURL(baseUrl + track.id);
+
+        this.queue.enqueue(track);
+        console.log(`Enqueued track: ${track.name} - ${track.id}`);
+
+        //Enqueue for the first time
+        if (!this.isPlaying)
+        {
+            if (!this.player) {            
+                this.player = createAudioPlayer();
+                handlePlayerEvents(this);
+            }
+            this.dequeue();
+        }
+
+        await this.interaction.reply({ embeds: [embed] });
+    }
+
+    /**
+     * Removes and plays the next track from the queue
+     * Only call if 100% queue is not empty
+     */
+    dequeue() {
+        const track = this.queue.dequeue();
+        console.log(`Dequeued track: ${track.name} - ${track.id}`);
+        const resource = createAudioResource(fetchTrackAudio(track.id));
+        this.player.play(resource);
+        this.voiceConnection.subscribe(this.player);
+        this.isPlaying = true;
+        this.displayTrack(track);
+    }
+
+    /**
+     * Pauses the current audio player and updates the message with the pause button
+     */
+    pause(buttonInteraction) {
+        this.player.pause();
+        const buttons = new ActionRowBuilder().addComponents(
+            unpauseButton,
+            skipButton,
+            disconnectButton
+        );
+        buttonInteraction.update({ components: [buttons] });
+    }
+
+    /**
+     * Unpauses the current audio player and updates the message with the play button
+     */
+    unPause(buttonInteraction) {
+        this.player.unpause();
+        const buttons = new ActionRowBuilder().addComponents(
+            pauseButton,
+            skipButton,
+            disconnectButton
+        );
+        buttonInteraction.update({ components: [buttons] });
+    }
+
+    /**
+     * Skips the current track and updates the message with the skip button
+     * 
+     */
+    skip(buttonInteraction) {
+        if (this.queue.isEmpty()) {
+            const embed = new EmbedBuilder()
+                .setDescription("Queue Empty.")
+                .setColor(primaryColor);
+
+            buttonInteraction.update({ embeds: [embed], components: [] });
+        } else {
+            this.dequeue();
+        }
+    }
+
+    /**
+     * Disconnects from voice and cleans up resources
+     */
+    disconnect(buttonInteraction) {
+        this.player.stop();
+        this.voiceConnection.destroy();
+        deletePlayer(this);
+        const embed = new EmbedBuilder()
+            .setDescription("Disconnected.")
+            .setColor(primaryColor);
+        
+        buttonInteraction.update({ embeds: [embed], components: [] });
+
+    }
+
+    displayTrack(track) {
+        const row = new ActionRowBuilder().addComponents(
+            pauseButton,
+            skipButton,
+            disconnectButton
+        );
+
+        const embed = new EmbedBuilder()
+            .setTitle("Now Playing: " + track.name)
+            .setThumbnail(track.thumbnail)
+            .setColor(primaryColor)
+            .setURL(baseUrl + track.id);
+
+        this.interaction.channel.send({
+            components: [row],
+            embeds: [embed],
+        });
+    }
+
+    displayEnd(){
+        const embed = new EmbedBuilder()
+            .setDescription("Queue Empty.")
+            .setColor(primaryColor);
+
+        this.interaction.update({ embeds: [embed], components: [] });
+    }
+}
 
 /**
- * @type {AudioPlayer}
+ * Each Guild should have only one Player due to discord.js limitation. Map each guild Id (string) to a Player.
+ * @type {Map<string, Player>}
  */
-let currentPlayer;
+const playerMap = new Map();
 
 /**
- * @type {VoiceConnection}
+ * If guild does not have an activate Player: Returns new Player
+ * Else: Returns existing Player
+ * @param {CommandInteraction} interaction
+ * @param {VoiceChannel} channel
+ * @returns {Player}
  */
-let currentConnection;
+function createNewPlayer(interaction, channel) {
+    let player = playerMap.get(interaction.guildId);
+
+    if (!player) {
+        const voiceConnection = createNewConnection(channel);
+        player = new Player(voiceConnection, interaction);
+        playerMap.set(interaction.guildId, player);
+    }
+
+    return player;
+}
 
 /**
- * @type {CommandInteraction}
+ *
+ * @param {string} guildId
+ * @returns {Player || undefined}
  */
-let currentInteraction;
+function searchPlayers(guildId) {
+    return playerMap.get(guildId);
+}
+
+/**
+ *
+ * @param {Player} player
+ * @returns {Boolean}
+ */
+function deletePlayer(player) {    
+    playerMap.delete(player);
+    player = null;
+}
 
 /**
  * Creates a new voice connection on call from play command
  * @param {VoiceChannel} channel The voice channel to connect to
  * @param {CommandInteraction} interaction The interaction that triggered this
  */
-function createNewConnection(channel, interaction) {
-    if (!getVoiceConnection(interaction.guildId)) {
-        currentConnection = joinVoiceChannel({
-            channelId: channel.id,
-            guildId: channel.guild.id,
-            adapterCreator: channel.guild.voiceAdapterCreator,
-        });
-        handleVoiceEvents(currentConnection);
-    }
-}
-
-/**
- * Pauses the current audio player and updates the message with the pause button
- * @param {ButtonInteraction} interaction The interaction that triggered this
- */
-function pause(interaction) {
-    currentPlayer.pause();
-    const buttons = new ActionRowBuilder().addComponents(
-        unpauseButton,
-        skipButton,
-        disconnectButton
-    );
-    interaction.update({ components: [buttons] });
-}
-
-/**
- * Unpauses the current audio player and updates the message with the play button
- * @param {ButtonInteraction} interaction The interaction that triggered this
- */
-function unPause(interaction) {
-    currentPlayer.unpause();
-    const buttons = new ActionRowBuilder().addComponents(
-        pauseButton,
-        skipButton,
-        disconnectButton
-    );
-    interaction.update({ components: [buttons] });
-}
-
-/**
- * Skips the current track and updates the message with the skip button
- * @param {ButtonInteraction} interaction The interaction that triggered this
- */
-function skip(interaction) {
-    if (isEmpty()) {
-        const embed = new EmbedBuilder()
-            .setDescription("Queue Empty.")
-            .setColor(primaryColor);
-
-        deletePlayer();
-        interaction.update({ embeds: [embed], components: [] });
-    } else {
-        dequeue();
-    }
-}
-
-/**
- * Disconnects from voice and cleans up resources
- * @param {ButtonInteraction} interaction The interaction that triggered this
- */
-function disconnect(interaction) {
-    const embed = new EmbedBuilder()
-        .setDescription("Disconnected.")
-        .setColor(primaryColor);
-
-    interaction.update({ embeds: [embed], components: [] });
-    deletePlayer() && currentConnection.destroy() && queue.clear();
-}
-
-/**
- * Enqueues a track and starts playback if nothing is currently playing
- * @param {TrackData} track The track data to enqueue
- * @param {CommandInteraction} interaction The interaction that triggered this
- */
-async function enqueue(track, interaction) {
-    const embed = new EmbedBuilder()
-    .setDescription("Added " + track.name)
-    .setThumbnail(track.thumbnail)
-    .setColor(primaryColor)
-    .setURL(baseUrl + track.id);
-
-    //Use global var to store interaction || Bundle track with interaction.
-    //Global Vars are less intutive than bundling
-    currentInteraction = interaction;
-
-    if (!currentPlayer || currentPlayer.state === AudioPlayerStatus.Idle) {
-        //1. Create a new audio player if it doesn't exist
-        currentPlayer = createAudioPlayer();
-        handlePlayerEvents(currentPlayer);
-    }
-
-    if (queue.isEmpty()) {
-        //2. Automatically play first song when queue is empty
-        queue.enqueue(track);
-        console.log(`Enqueued track: ${track.name} - ${track.id}`);
-        dequeue();
-    } else {
-        //2. Add song to queue when something is playing
-        queue.enqueue(track);
-        console.log(`Enqueued track: ${track.name} - ${track.id}`);
-    }
-
-    await interaction.reply({ embeds: [embed] });
-}
-
-/**
- * Removes and plays the next track from the queue
- */
-function dequeue() {
-    const track = queue.dequeue();
-    console.log(`Dequeued track: ${track.name} - ${track.id}`);
-    const resource = createAudioResource(fetchTrackAudio(track.id));
-    currentPlayer.play(resource);
-    currentConnection.subscribe(currentPlayer);
-    displayTrack(track);
-}
-
-/**
- * Checks if the queue is empty
- * @returns {boolean} True if queue is empty, false otherwise
- */
-function isEmpty() {
-    return queue.isEmpty();
-}
-
-/**
- * Deletes the current player
- */
-function deletePlayer() {
-    currentPlayer.stop();
-}
-
-function displayTrack(track) {
-    const row = new ActionRowBuilder().addComponents(
-        pauseButton,
-        skipButton,
-        disconnectButton
-    );
-
-    const embed = new EmbedBuilder()
-        .setTitle("Now Playing: " + track.name)
-        .setThumbnail(track.thumbnail)
-        .setColor(primaryColor)
-        .setURL(baseUrl + track.id);
-
-    currentInteraction.channel.send({
-        components: [row],
-        embeds: [embed],
+function createNewConnection(channel) {
+    let currentConnection = joinVoiceChannel({
+        channelId: channel.id,
+        guildId: channel.guild.id,
+        adapterCreator: channel.guild.voiceAdapterCreator,
     });
+    return currentConnection;
 }
-
-
 
 module.exports = {
-    enqueue,
-    dequeue,
-    isEmpty,
-    skip,
-    createNewConnection,
-    disconnect,
-    pause,
-    unPause,
+    createNewPlayer,
+    searchPlayers,
     deletePlayer,
 };

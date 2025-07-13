@@ -1,14 +1,15 @@
 const { AudioPlayerStatus } = require("@discordjs/voice");
-const { dequeue, isEmpty, deletePlayer } = require("../mp3/index.js");
+const { deletePlayer } = require("../mp3/index.js");
 
 module.exports = {
     name: AudioPlayerStatus.Idle,
-    execute(oldState, newState) {
+    execute(oldState, newState, player) {
         console.log("Player Idle");
-        if (!isEmpty()) {
-            dequeue();
+        if (!player.queue.isEmpty()) {
+            player.dequeue();
         } else {
-            deletePlayer();
+            player.isPlaying = false;
+            player.displayEnd();
         }
     },
 };
